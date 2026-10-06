@@ -293,3 +293,36 @@ struct SudoPasswordDialog: View {
         )
     }
 }
+
+// MARK: - 辅助
+
+struct NSViewAccessor: NSViewRepresentable {
+    let callback: (NSView) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { callback(view) }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// 输出高度自适应
+private struct HeightObserver: View {
+    let text: String
+    @Binding var height: CGFloat
+
+    var body: some View {
+        GeometryReader { _ in
+            Color.clear
+                .onAppear { update() }
+                .onChange(of: text) { _ in update() }
+        }
+    }
+
+    private func update() {
+        let lines = text.components(separatedBy: "\n").count
+        withAnimation(.easeInOut(duration: 0.15)) {
+            height = min(max(CGFloat(lines) * 20 + 20, 60), 220)
+        }
+    }
+}

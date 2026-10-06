@@ -276,3 +276,58 @@ enum CommandPreprocessor {
         }
         return trimmed
     }
+    static func isInteractive(_ command: String) -> Bool {
+        let unquoted = stripQuotes(command)
+        let hasPipe = unquoted.contains("|")
+        let hasRedirect = unquoted.contains(">") || unquoted.contains("<")
+
+        let firstPart = command.split(separator: "|").first.map(String.init) ?? command
+        let trimmed = firstPart.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let interactive = [
+            "vim","vi","nano","emacs","top","htop","less","more",
+            "ssh","telnet","ftp","sftp",
+            "python","python3","ipython","irb","node",
+            "mysql","psql","sqlite3",
+            "gdb","lldb","bc","dc",
+            "sh","bash","zsh","fish",
+            "mail","mutt","pine"
+        ]
+        for cmd in interactive {
+            if trimmed == cmd || trimmed.hasPrefix(cmd + " ") {
+                if hasPipe || hasRedirect { return false }
+                return true
+            }
+        }
+        if unquoted.contains(" -i ") || unquoted.contains(" --interactive ") { return true }
+        return false
+    }
+
+    private static func unwrapQuotes(_ s: String) -> String {
+        guard s.count >= 2 else { return s }
+        let first = s.first!
+        let last = s.last!
+        if (first == "\"" && last == "\"") || (first == "'" && last == "'") {
+            let inner = String(s.dropFirst().dropLast())
+            if !inner.contains(first) {
+                return inner
+            }
+        }
+        return s
+    }
+
+    private static func stripQuotes(_ s: String) -> String {
+        var result = ""
+        var inSingle = false
+        var inDouble = false
+        var escaped = false
+        for ch in s {
+            if escaped { escaped = false; continue }
+            if ch == "\\" { escaped = true; continue }
+            if ch == "'" && !inDouble { inSingle.toggle(); continue }
+            if ch == "\"" && !inSingle { inDouble.toggle(); continue }
+            if !inSingle && !inDouble { result.append(ch) }
+        }
+        return result
+    }
+}

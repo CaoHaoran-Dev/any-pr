@@ -23,7 +23,7 @@ jobs:
       - name: Fetch swiftlang/swift
         run: |
           git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift --depth=1
+          git fetch swift main:refs/remotes/swift/main --depth=1
       - name: Build clean file list
         run: |
           git ls-tree -r --name-only swift/main \
@@ -67,14 +67,14 @@ jobs:
 
           # 从目标仓库的 main 拉分支，避免 .github/ 混进 diff
           git remote add target https://github.com/any-pr/any-pr.git
-          git fetch target main --depth=1
+          git fetch target main:refs/remotes/target/main --depth=1
 
-          # 加 swift remote，否则 fetch 会报 'swift' does not appear to be a git repository
+          # 加 swift remote，并把远程 main 拉成本地 swift/main
           git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift --depth=1 swift/main
+          git fetch swift main:refs/remotes/swift/main --depth=1
 
-          START=$((BATCH * 3))
-          sed -n "$((START+1)),$((START+3))p" clean_files.txt > batch.txt
+          START=$((BATCH * 5))
+          sed -n "$((START+1)),$((START+5))p" clean_files.txt > batch.txt
           [ -s batch.txt ] || { echo "No more files."; exit 0; }
 
           BRANCH="swift-revival-batch-${BATCH}"
@@ -95,11 +95,11 @@ jobs:
             --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${BATCH}" \
-            --body "编译语言才是王道，JVM简直没技巧" \
+            --body "编译语言才是王道，JVM简直没技巧。" \
             || true
 
       - name: Trigger next batch
-        if: success() && ${{ github.event.inputs.batch || 0 }} < 4
+        if: success()
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |

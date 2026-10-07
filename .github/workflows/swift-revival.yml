@@ -68,6 +68,9 @@ jobs:
           # 从目标仓库的 main 拉分支，避免 .github/ 混进 diff
           git remote add target https://github.com/any-pr/any-pr.git
           git fetch target main --depth=1
+
+          # 加 swift remote，否则 fetch 会报 'swift' does not appear to be a git repository
+          git remote add swift https://github.com/swiftlang/swift.git
           git fetch swift --depth=1 swift/main
 
           START=$((BATCH * 3))
@@ -92,7 +95,7 @@ jobs:
             --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${BATCH}" \
-            --body "编译语言才是王道，你这JVM简直没技巧。" \
+            --body "编译语言才是王道，JVM简直没技巧" \
             || true
 
       - name: Trigger next batch

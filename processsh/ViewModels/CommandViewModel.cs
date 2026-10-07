@@ -295,3 +295,21 @@ public sealed class CommandViewModel : IDisposable
             InputText = _currentInputBackup;
         }
     }
+
+private void ResetHistoryNavigation()
+    {
+        _historyIndex = -1;
+        _historyCommands = new List<string>();
+        _currentInputBackup = string.Empty;
+    }
+
+    private void UpdateWindowTitle()
+    {
+        WindowTitleChanged?.Invoke("ProcessSH");
+    }
+
+    public void Dispose()
+    {
+        _currentCts?.Dispose();
+    }
+}

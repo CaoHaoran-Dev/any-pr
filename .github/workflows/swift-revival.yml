@@ -1,0 +1,80 @@
+name: Swift Revival
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: '批次号'
+        required: true
+        default: '0'
+  schedule:
+    - cron: '*/5 * * * *'
+
+jobs:
+  revive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Fetch swiftlang/swift
+        run: |
+          git remote add swift https://github.com/swiftlang/swift.git
+          git fetch swift --depth=1
+
+      - name: Build clean file list
+        run: |
+          git ls-tree -r --name-only swift/main \
+            | grep -viE '^\.github/|^LICENSE|^README|\.(png|jpg|jpeg|gif|svg|ico|jar|so|dll|exe|bin|zip|gz|tar|pem|key|p12|pfx)$' \
+            | while read -r f; do
+                lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
+                if [ "$lines" -le 300 ]; then echo "$f"; fi
+              done > clean_files.txt
+          echo "Clean files: $(wc -l < clean_files.txt)"
+
+      - name: Slice and PR
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          BATCH: ${{ github.event.inputs.batch || 0 }}
+        run: |
+          set -euo pipefail
+          START=$((BATCH * 3))
+          sed -n "$((START+1)),$((START+3))p" clean_files.txt > batch.txt
+          [ -s batch.txt ] || { echo "No more files."; exit 0; }
+
+          BRANCH="swift-revival-batch-${BATCH}"
+          git checkout -B "$BRANCH" origin/main
+
+          mkdir -p swift
+          while read -r f; do
+            [ -z "$f" ] && continue
+            mkdir -p "swift/$(dirname "$f")"
+            git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
+          done < batch.txt
+
+          git add swift/
+          git commit -m "Swift Revival: batch ${BATCH}" || { echo "Nothing to commit."; exit 0; }
+          git push origin "$BRANCH" --force-with-lease
+
+          gh pr create --repo any-pr/any-pr \
+            --head "${{ github.repository_owner }}:$BRANCH" \
+            --base main \
+            --title "Swift Revival: batch ${BATCH}" \
+            --body "Swift 才是该走的路。这是复兴的第一步。" \
+            || true
+
+      - name: Trigger next batch
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          NEXT=$(( ${{ github.event.inputs.batch || 0 }} + 1 ))
+          gh workflow run swift-revival.yml \
+            --repo ${{ github.repository }} \
+            -f batch=$NEXT

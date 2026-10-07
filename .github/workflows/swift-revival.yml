@@ -8,7 +8,7 @@ on:
         required: true
         default: '0'
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/2 * * * *'
 
 jobs:
   revive:
@@ -44,6 +44,9 @@ jobs:
           BATCH: ${{ github.event.inputs.batch || 0 }}
         run: |
           set -euo pipefail
+          git config user.name "CaoHaoran-Dev"
+          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
+
           START=$((BATCH * 3))
           sed -n "$((START+1)),$((START+3))p" clean_files.txt > batch.txt
           [ -s batch.txt ] || { echo "No more files."; exit 0; }
@@ -63,10 +66,10 @@ jobs:
           git push origin "$BRANCH" --force-with-lease
 
           gh pr create --repo any-pr/any-pr \
-            --head "${{ github.repository_owner }}:$BRANCH" \
+            --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${BATCH}" \
-            --body "Swift 才是该走的路。这是复兴的第一步。" \
+            --body "编译语言才是王道，你这 JVM 简直没技巧。" \
             || true
 
       - name: Trigger next batch

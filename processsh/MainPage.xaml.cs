@@ -232,3 +232,80 @@ public sealed partial class MainPage : Page
         await _viewModel.ExecuteCommandAsync();
     }
 
+    private void InputBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is Suggestion s)
+        {
+            sender.Text = s.Text;
+        }
+    }
+
+    private void InputBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (_viewModel == null) return;
+
+        var hasSuggestions = _viewModel.Suggestions.Count > 0;
+
+        switch (e.Key)
+        {
+            case VirtualKey.Tab:
+                e.Handled = true;
+                _viewModel.InputText = InputBox.Text;
+                _viewModel.RequestSuggestions();
+                InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+                break;
+
+            case VirtualKey.Up:
+                if (hasSuggestions)
+                {
+                    e.Handled = true;
+                    _viewModel.SelectPrevious();
+                    InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+                }
+                else
+                {
+                    e.Handled = true;
+                    _viewModel.NavigateHistoryUp();
+                    InputBox.Text = _viewModel.InputText;
+                }
+                break;
+
+            case VirtualKey.Down:
+                if (hasSuggestions)
+                {
+                    e.Handled = true;
+                    _viewModel.SelectNext();
+                    InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+                }
+                else
+                {
+                    e.Handled = true;
+                    _viewModel.NavigateHistoryDown();
+                    InputBox.Text = _viewModel.InputText;
+                }
+                break;
+
+            case VirtualKey.Escape:
+                e.Handled = true;
+                _viewModel.CloseSuggestions();
+                InputBox.ItemsSource = null;
+                break;
+        }
+    }
+
+    private void CancelButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.CancelExecution();
+    }
+
+    private void ClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.ClearOutput();
+    }
+
+    private void SudoToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel != null)
+            _viewModel.UseSudo = SudoToggle.IsChecked == true;
+    }
+}

@@ -7,41 +7,15 @@ on:
         description: '批次号'
         required: true
         default: '0'
-      skip_prepare:
-        description: '跳过 fetch/过滤，直接用已有清单'
+      prepare:
+        description: '是否重新生成清单（首次或清单过期时填 true）'
         required: false
         default: 'false'
   schedule:
     - cron: '*/2 * * * *'
 
 jobs:
-  prepare:
-    if: github.event.inputs.skip_prepare != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Fetch swiftlang/swift
-        run: |
-          git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift main:refs/remotes/swift/main --depth=1
-      - name: Build clean file list
-        run: |
-          git ls-tree -r --name-only swift/main \
-            | grep -viE '^\.github/|^LICENSE|^README|\.(png|jpg|jpeg|gif|svg|ico|jar|so|dll|exe|bin|zip|gz|tar|pem|key|p12|pfx)$' \
-            | while read -r f; do
-                lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
-                if [ "$lines" -le 300 ]; then echo "$f"; fi
-              done > clean_files.txt
-          echo "Clean files: $(wc -l < clean_files.txt)"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: clean-files
-          path: clean_files.txt
-          retention-days: 30
-
   revive:
-    needs: prepare
-    if: always() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -52,9 +26,51 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_TOKEN }}
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: clean-files
+      - name: Fetch target and swift
+        run: |
+          git config user.name "CaoHaoran-Dev"
+          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
+
+          git remote add target https://github.com/any-pr/any-pr.git
+          git fetch target main:refs/remotes/target/main --depth=1
+
+          git remote add swift https://github.com/swiftlang/swift.git
+          git fetch swift main:refs/remotes/swift/main --depth=1
+
+      - name: Get or build manifest
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          PREPARE: ${{ github.event.inputs.prepare || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # 尝试从固定分支拉清单
+          if git fetch origin swift-manifest:refs/remotes/origin/swift-manifest --depth=1 2>/dev/null; then
+            git show origin/swift-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
+          fi
+
+          # 如果清单不存在，或用户要求重建，则重新生成
+          if [ ! -s clean_files.txt ] || [ "$PREPARE" = "true" ]; then
+            echo "Building manifest..."
+            git ls-tree -r --name-only swift/main \
+              | grep -viE '^\.github/|^LICENSE|^README|\.(png|jpg|jpeg|gif|svg|ico|jar|so|dll|exe|bin|zip|gz|tar|pem|key|p12|pfx)$' \
+              | while read -r f; do
+                  lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
+                  if [ "$lines" -le 300 ]; then echo "$f"; fi
+                done > clean_files.txt
+
+            # 把清单推到固定分支
+            git checkout --orphan swift-manifest-tmp
+            git rm -rf . >/dev/null 2>&1 || true
+            cp clean_files.txt clean_files.txt.tmp
+            git add clean_files.txt.tmp
+            git commit -m "Update manifest" || true
+            git push origin HEAD:swift-manifest --force
+            mv clean_files.txt.tmp clean_files.txt
+            git checkout -f main
+          fi
+
+          echo "Manifest size: $(wc -l < clean_files.txt)"
 
       - name: Slice and PR
         env:
@@ -62,16 +78,6 @@ jobs:
           BATCH: ${{ github.event.inputs.batch || 0 }}
         run: |
           set -euo pipefail
-          git config user.name "CaoHaoran-Dev"
-          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
-
-          # 从目标仓库的 main 拉分支，避免 .github/ 混进 diff
-          git remote add target https://github.com/any-pr/any-pr.git
-          git fetch target main:refs/remotes/target/main --depth=1
-
-          # 加 swift remote，并把远程 main 拉成本地 swift/main
-          git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift main:refs/remotes/swift/main --depth=1
 
           START=$((BATCH * 5))
           sed -n "$((START+1)),$((START+5))p" clean_files.txt > batch.txt
@@ -107,4 +113,4 @@ jobs:
           gh workflow run swift-revival.yml \
             --repo ${{ github.repository }} \
             -f batch=$NEXT \
-            -f skip_prepare=true
+            -f prepare=false

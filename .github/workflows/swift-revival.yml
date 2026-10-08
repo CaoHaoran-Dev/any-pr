@@ -56,7 +56,7 @@ jobs:
 
             while read -r f; do
               [ -z "$f" ] && continue
-              lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
+              lines=$(git show "swift/main:$f" 2>/dev/null | wc -l) || continue
               if [ "$lines" -le 300 ]; then echo "$f"; fi
             done < all_files.txt > clean_files.txt
 

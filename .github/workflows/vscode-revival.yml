@@ -11,8 +11,6 @@ on:
         description: '是否重新生成清单（首次填 true）'
         required: false
         default: 'false'
-  schedule:
-    - cron: '*/1 * * * *'
 
 jobs:
   prepare:
@@ -203,27 +201,36 @@ jobs:
         id: check
         env:
           BATCH: ${{ github.event.inputs.batch || 0 }}
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           set -euo pipefail
           TOTAL=0
-          if git fetch origin vscode-manifest:refs/remotes/origin/vscode-manifest --depth=1 2>/dev/null; then
+          rm -f clean_files.txt
+          # 显式 URL fetch manifest 分支，不依赖 origin 的浅克隆配置
+          if git fetch "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" \
+               +vscode-manifest:refs/remotes/origin/vscode-manifest --depth=1; then
             git show origin/vscode-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
+          else
+            echo "manifest fetch failed"
+          fi
+          if [ -s clean_files.txt ]; then
             TOTAL=$(wc -l < clean_files.txt)
           fi
+
           NEXT=$((BATCH + 1))
-          FIRST_IDX=$((NEXT * 2))
-          # 看下一个 chunk 编号是否还有文件
-          HIT=$(awk -v target="$FIRST_IDX" '
+          T0=$((NEXT * 2))
+          T1=$((NEXT * 2 + 1))
+          HIT=$(awk -v t0="$T0" -v t1="$T1" '
             BEGIN { chunk=0; lines=0; hit=0 }
             {
               n=$1
               if (lines > 0 && lines + n > 500) { chunk++; lines=0 }
-              if (chunk == target) { hit=1 }
+              if (chunk == t0 || chunk == t1) { hit=1 }
               lines += n
             }
             END { print hit }
           ' clean_files.txt)
-          echo "Total files: ${TOTAL}; next first chunk ${FIRST_IDX} has files: ${HIT}"
+          echo "Total files: ${TOTAL}; next chunks ${T0}/${T1} have files: ${HIT}"
           if [ "$HIT" = "1" ]; then
             echo "more=true" >> $GITHUB_OUTPUT
           else

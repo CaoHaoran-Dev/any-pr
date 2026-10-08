@@ -72,37 +72,48 @@ jobs:
 
           echo "Manifest size: $(wc -l < clean_files.txt)"
 
-      - name: Slice and PR
+      - name: Create 3 PRs concurrently
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
           BATCH: ${{ github.event.inputs.batch || 0 }}
         run: |
           set -euo pipefail
 
-          START=$((BATCH * 5))
-          sed -n "$((START+1)),$((START+5))p" clean_files.txt > batch.txt
-          [ -s batch.txt ] || { echo "No more files."; exit 0; }
+          # 三个 PR 分别从 batch*3 开始的三个切片
+          BASE=$((BATCH * 3))
 
-          BRANCH="swift-revival-batch-${BATCH}"
-          git checkout -B "$BRANCH" target/main
+          for i in 0 1 2; do
+            IDX=$((BASE + i))
+            sed -n "$((IDX*5+1)),$((IDX*5+5))p" clean_files.txt > "batch_${i}.txt"
+            [ -s "batch_${i}.txt" ] || continue
 
-          mkdir -p swift
-          while read -r f; do
-            [ -z "$f" ] && continue
-            mkdir -p "swift/$(dirname "$f")"
-            git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
-          done < batch.txt
+            # 每批独立工作区，从最新的 target/main 拉
+            git fetch target main:refs/remotes/target/main --depth=1
+            git checkout -f target/main
+            git clean -fdx
+            git reset --hard target/main
 
-          git add swift/
-          git commit -m "Swift Revival: batch ${BATCH}" || { echo "Nothing to commit."; exit 0; }
-          git push origin "$BRANCH" --force-with-lease
+            BRANCH="swift-revival-batch-${IDX}"
+            git checkout -B "$BRANCH" target/main
 
-          gh pr create --repo any-pr/any-pr \
-            --head "CaoHaoran-Dev:$BRANCH" \
-            --base main \
-            --title "Swift Revival: batch ${BATCH}" \
-            --body "编译二进制才是王道，JVM简直没技巧。" \
-            || true
+            mkdir -p swift
+            while read -r f; do
+              [ -z "$f" ] && continue
+              mkdir -p "swift/$(dirname "$f")"
+              git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
+            done < "batch_${i}.txt"
+
+            git add swift/
+            git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit for batch ${IDX}."; continue; }
+            git push origin "$BRANCH" --force-with-lease
+
+            gh pr create --repo any-pr/any-pr \
+              --head "CaoHaoran-Dev:$BRANCH" \
+              --base main \
+              --title "Swift Revival: batch ${IDX}" \
+              --body "编译二进制才是王道，JVM简直没技巧。" \
+              || true
+          done
 
       - name: Trigger next batch
         if: success()

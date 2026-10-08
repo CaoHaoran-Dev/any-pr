@@ -20,6 +20,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    strategy:
+      max-parallel: 3
+      matrix:
+        slot: [0, 1, 2]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,57 +74,79 @@ jobs:
             git checkout -f main
           fi
 
+          mkdir -p /tmp/swift-revival
+          cp clean_files.txt /tmp/swift-revival/clean_files.txt
           echo "Manifest size: $(wc -l < clean_files.txt)"
 
-      - name: Create 3 PRs concurrently
+      - name: Build line-aware batch for this slot
+        env:
+          BATCH: ${{ github.event.inputs.batch || 0 }}
+          SLOT: ${{ matrix.slot }}
+        run: |
+          set -euo pipefail
+          IDX=$((BATCH * 3 + SLOT))
+          awk -v target="$IDX" '
+            BEGIN { batch=0; lines=0; files=0 }
+            {
+              f=$0
+              cmd="git show swift/main:" f " 2>/dev/null | wc -l"
+              cmd | getline n
+              close(cmd)
+              if (files > 0 && (lines + n > 500 || files >= 20)) {
+                batch++
+                lines=0
+                files=0
+              }
+              if (batch == target) { print f > "/tmp/swift-revival/mybatch.txt" }
+              lines += n
+              files++
+            }
+          ' /tmp/swift-revival/clean_files.txt
+          [ -s /tmp/swift-revival/mybatch.txt ] || { echo "No files for batch ${IDX}."; exit 0; }
+          echo "Batch ${IDX}: $(wc -l < /tmp/swift-revival/mybatch.txt) files"
+
+      - name: Create PR
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
           BATCH: ${{ github.event.inputs.batch || 0 }}
+          SLOT: ${{ matrix.slot }}
         run: |
           set -euo pipefail
+          IDX=$((BATCH * 3 + SLOT))
+          [ -s /tmp/swift-revival/mybatch.txt ] || exit 0
 
-          # 清单移到工作区之外，避免被 git clean 清掉
-          mkdir -p /tmp/swift-revival
-          cp clean_files.txt /tmp/swift-revival/clean_files.txt
+          git fetch target main:refs/remotes/target/main --depth=1
+          git checkout -f target/main
+          git clean -fdx
+          git reset --hard target/main
 
-          BASE=$((BATCH * 3))
+          BRANCH="swift-revival-batch-${IDX}"
+          git checkout -B "$BRANCH" target/main
 
-          for i in 0 1 2; do
-            IDX=$((BASE + i))
-            sed -n "$((IDX*5+1)),$((IDX*5+5))p" /tmp/swift-revival/clean_files.txt > "/tmp/swift-revival/batch_${i}.txt"
-            [ -s "/tmp/swift-revival/batch_${i}.txt" ] || continue
+          mkdir -p swift
+          while read -r f; do
+            [ -z "$f" ] && continue
+            mkdir -p "swift/$(dirname "$f")"
+            git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
+          done < /tmp/swift-revival/mybatch.txt
 
-            # 每个 PR 前都从最新 target/main 拉，确保 fork 已更新
-            git fetch target main:refs/remotes/target/main --depth=1
-            git checkout -f target/main
-            git clean -fdx
-            git reset --hard target/main
+          git add swift/
+          git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit."; exit 0; }
+          git push origin "$BRANCH" --force-with-lease
 
-            BRANCH="swift-revival-batch-${IDX}"
-            git checkout -B "$BRANCH" target/main
+          gh pr create --repo any-pr/any-pr \
+            --head "CaoHaoran-Dev:$BRANCH" \
+            --base main \
+            --title "Swift Revival: batch ${IDX}" \
+            --body "编译二进制才是王道，JVM简直没技巧。" \
+            || true
 
-            mkdir -p swift
-            while read -r f; do
-              [ -z "$f" ] && continue
-              mkdir -p "swift/$(dirname "$f")"
-              git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
-            done < "/tmp/swift-revival/batch_${i}.txt"
-
-            git add swift/
-            git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit for batch ${IDX}."; continue; }
-            git push origin "$BRANCH" --force-with-lease
-
-            gh pr create --repo any-pr/any-pr \
-              --head "CaoHaoran-Dev:$BRANCH" \
-              --base main \
-              --title "Swift Revival: batch ${IDX}" \
-              --body "编译二进制才是王道，JVM简直没技巧。" \
-              || true
-          done
-
-      - name: Trigger next batch
-        if: success()
-        env:
+  next:
+    needs: revive
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           NEXT=$(( ${{ github.event.inputs.batch || 0 }} + 1 ))

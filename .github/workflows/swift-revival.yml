@@ -26,7 +26,7 @@ jobs:
       - name: Fetch swift
         run: |
           git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift main:refs/remotes/swift/main --depth=1
+          git fetch swift +main:refs/remotes/swift/main --depth=1
 
       - name: Build manifest
         env:
@@ -99,10 +99,10 @@ jobs:
           git config user.email "CaoHaoran-Dev@users.noreply.github.com"
 
           git remote add target https://github.com/any-pr/any-pr.git
-          git fetch target main:refs/remotes/target/main --depth=1
+          git fetch target +main:refs/remotes/target/main --depth=1
 
           git remote add swift https://github.com/swiftlang/swift.git
-          git fetch swift main:refs/remotes/swift/main --depth=1
+          git fetch swift +main:refs/remotes/swift/main --depth=1
 
       - name: Build batch for this slot
         env:
@@ -146,7 +146,7 @@ jobs:
           set -euo pipefail
           IDX=$((BATCH * 3 + SLOT))
 
-          git fetch target main:refs/remotes/target/main --depth=1
+          git fetch target +main:refs/remotes/target/main --depth=1
           git checkout -f target/main
           git clean -fdx
           git reset --hard target/main

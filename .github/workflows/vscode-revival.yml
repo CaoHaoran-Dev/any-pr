@@ -174,7 +174,9 @@ jobs:
           done < /tmp/vscode-revival/mychunk.txt
 
           echo "Repo root: $ROOT"
-          ls -R "$DEST" | head -30
+          echo "Files written: $(wc -l < /tmp/vscode-revival/mychunk.txt)"
+          echo "Sample files:"
+          head -5 /tmp/vscode-revival/mychunk.txt
 
           git add vscode/
           git commit -m "VSCode Revival: chunk ${IDX}" || { echo "Nothing to commit."; exit 0; }

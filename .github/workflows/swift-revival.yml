@@ -51,7 +51,9 @@ jobs:
             while read -r f; do
               [ -z "$f" ] && continue
               lines=$(git show "swift/main:$f" 2>/dev/null | wc -l) || continue
-              if [ "$lines" -le 300 ]; then echo "$f"; fi
+              if [ "$lines" -le 300 ]; then
+                printf '%d\t%s\n' "$lines" "$f"
+              fi
             done < all_files.txt > clean_files.txt
 
             git checkout --orphan swift-manifest-tmp
@@ -112,13 +114,12 @@ jobs:
           set -euo pipefail
           IDX=$((BATCH * 3 + SLOT))
           mkdir -p /tmp/swift-revival
+
           awk -v target="$IDX" '
             BEGIN { batch=0; lines=0; files=0 }
             {
-              f=$0
-              cmd="git show swift/main:" f " 2>/dev/null | wc -l"
-              cmd | getline n
-              close(cmd)
+              n=$1
+              f=$2
               if (files > 0 && (lines + n > 500 || files >= 20)) {
                 batch++
                 lines=0
@@ -129,6 +130,7 @@ jobs:
               files++
             }
           ' clean_files.txt
+
           if [ -s /tmp/swift-revival/mybatch.txt ]; then
             echo "Batch ${IDX}: $(wc -l < /tmp/swift-revival/mybatch.txt) files"
           else

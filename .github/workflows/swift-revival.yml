@@ -47,7 +47,7 @@ jobs:
 
             git ls-tree -r --name-only swift/main \
               | grep -viE '^\.github(/|$)' \
-              | grep -viE '(^|/)licen[cs]es?/|(^|/)((un)?licen[cs]e|copying|copyright|readme)s?([._-](?!(c|h|cpp|cc|cxx|hpp|hh|cs|go|rs|rb|erb|py|pyi|java|kt|kts|scala|clj|ex|exs|erl|hs|ml|fs|vb|swift|php|pl|pm|r|lua|dart|zig|nim|cr|jl|sh|bash|zsh|fish|ps1|bat|cmd|js|jsx|ts|tsx|mjs|cjs|mts|cts|vue|svelte|astro|elm|css|scss|sass|less|styl|json|jsonc|ya?ml|toml|xml|ini|cfg|conf|sql|graphql|proto|tf|nix|ipynb|lock|csv|png|jpe?g|gif|svg|ico|webp|mp[34]|mov|woff2?|ttf|otf|eot|o|obj|so|dll|exe|wasm|zip|tar|gz|7z|jar|whl)$)[a-z0-9]+)*$' \
+              | grep -viE '(^|/)((un)?licen[cs]e|licen[cs]es?|copying|copyright|readme)([._-][a-z0-9]+)*$' \
               | grep -viE '~$|\.(tmp|temp|bak|sav|old|orig|rej|sw[a-z]|log)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.ipynb_checkpoints|\.tox|\.nox|\.cache|\.parcel-cache|\.turbo|\.nyc_output|node_modules|dist|build|out|target|coverage|obj|\.next|\.nuxt|\.output|\.gradle|\.vercel)/|\.(eslintcache|stylelintcache|py[co]|o|obj|a|lib|so|dylib|dll|exe|com|msi|apk|aab|ipa|dmg|deb|rpm|class|jar|war|ear|whl|egg|wasm|pdb|bin|db|sqlite3?|zip|tgz|tar|tar\.(gz|bz2|xz|zst)|gz|bz2|xz|7z|rar|zst)$' \
               | grep -viE '(^|/)\.env([._-](example|sample|template|dist)$|[._-][a-z0-9._-]*$)?$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials(\.json)?$|(^|/)\.(npmrc|netrc|pgpass|htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn)$' \
               > all_files.txt
@@ -169,7 +169,7 @@ jobs:
 
           git add swift/
           git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit."; exit 0; }
-          git push origin "$BRANCH" --force-with-lease
+          git push origin "$BRANCH" --force
 
           gh pr create --repo any-pr/any-pr \
             --head "CaoHaoran-Dev:$BRANCH" \

@@ -21,13 +21,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_TOKEN }}
 
-      - name: Fetch vscode
-        run: |
-          set -euxo pipefail
-          git remote add vscode https://github.com/microsoft/vscode.git
-          git fetch vscode main --depth=1
-          git rev-parse FETCH_HEAD
-
       - name: Build manifest
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
@@ -44,6 +37,10 @@ jobs:
 
           if [ ! -s clean_files.txt ] || [ "$PREPARE" = "true" ]; then
             echo "Building manifest..."
+
+            # 自包含 fetch vscode，FETCH_HEAD 指向 vscode/main
+            git remote add vscode https://github.com/microsoft/vscode.git 2>/dev/null || true
+            git fetch vscode main --depth=1
 
             git ls-tree -r --name-only FETCH_HEAD \
               | grep -viE '^\.github(/|$)' \

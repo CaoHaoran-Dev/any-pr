@@ -1,0 +1,157 @@
+name: VSCode Revival (single)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prepare:
+        description: '是否重新生成清单（首次填 true）'
+        required: false
+        default: 'false'
+  schedule:
+    - cron: '*/1 * * * *'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Fetch vscode
+        run: |
+          git remote add vscode https://github.com/microsoft/vscode.git
+          git fetch vscode +main:refs/remotes/vscode/main --depth=1
+
+      - name: Build manifest
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          PREPARE: ${{ github.event.inputs.prepare || 'false' }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "CaoHaoran-Dev"
+          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
+
+          if git fetch origin vscode-manifest:refs/remotes/origin/vscode-manifest --depth=1 2>/dev/null; then
+            git show origin/vscode-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
+          fi
+
+          if [ ! -s clean_files.txt ] || [ "$PREPARE" = "true" ]; then
+            echo "Building manifest..."
+
+            git ls-tree -r --name-only vscode/main \
+              | grep -viE '^\.github(/|$)' \
+              | grep -viE '(^|/)licen[cs]es?/|(^|/)((un)?licen[cs]e|copying|copyright|readme)s?([._-][a-z0-9]+)*$' \
+              | grep -viE '~$|\.(tmp|temp|bak|sav|old|orig|rej|sw[a-z]|log)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.ipynb_checkpoints|\.tox|\.nox|\.cache|\.parcel-cache|\.turbo|\.nyc_output|node_modules|dist|build|out|target|coverage|obj|\.next|\.nuxt|\.output|\.gradle|\.vercel)/|\.(eslintcache|stylelintcache|py[co]|o|obj|a|lib|so|dylib|dll|exe|com|msi|apk|aab|ipa|dmg|deb|rpm|class|jar|war|ear|whl|egg|wasm|pdb|bin|db|sqlite3?|zip|tgz|tar|tar\.(gz|bz2|xz|zst)|gz|bz2|xz|7z|rar|zst)$' \
+              | grep -viE '(^|/)\.env([._-][a-z0-9._-]*)?$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials(\.json)?$|(^|/)\.(npmrc|netrc|pgpass|htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn)$' \
+              > all_files.txt
+
+            while read -r f; do
+              [ -z "$f" ] && continue
+              lines=$(git show "vscode/main:$f" 2>/dev/null | wc -l) || continue
+              if [ "$lines" -le 300 ]; then
+                printf '%d\t%s\n' "$lines" "$f"
+              fi
+            done < all_files.txt > clean_files.txt
+
+            git checkout --orphan vscode-manifest-tmp
+            git rm -rf . >/dev/null 2>&1 || true
+            cp clean_files.txt clean_files.txt.tmp
+            git add clean_files.txt.tmp
+            git commit -m "Update manifest" || true
+            git push origin HEAD:vscode-manifest --force
+            mv clean_files.txt.tmp clean_files.txt
+            git checkout -f main
+          fi
+
+          echo "Manifest size: $(wc -l < clean_files.txt)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clean-files
+          path: clean_files.txt
+          retention-days: 30
+
+  revive:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-files
+
+      - name: Pick single line
+        run: |
+          set -euo pipefail
+          FILE=$(head -n 1 clean_files.txt | awk '{print $2}')
+          if [ -z "$FILE" ]; then
+            echo "Manifest is empty."
+            echo "skip=true" >> $GITHUB_ENV
+            exit 0
+          fi
+          echo "FILE=$FILE" >> $GITHUB_ENV
+          echo "Picked: $FILE"
+
+      - name: Fetch target, fork and vscode
+        if: env.skip != 'true'
+        run: |
+          git config user.name "CaoHaoran-Dev"
+          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
+
+          git remote add target https://github.com/any-pr/any-pr.git
+          git fetch target +main:refs/remotes/target/main --depth=1
+
+          git remote add fork "https://x-access-token:${{ secrets.SYNC_TOKEN }}@github.com/CaoHaoran-Dev/any-pr.git"
+          git fetch fork +main:refs/remotes/fork/main --depth=1 || true
+
+          git remote add vscode https://github.com/microsoft/vscode.git
+          git fetch vscode +main:refs/remotes/vscode/main --depth=1
+
+      - name: Create PR
+        if: env.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          FORK_OWNER: CaoHaoran-Dev
+          UPSTREAM: any-pr/any-pr
+        run: |
+          set -euo pipefail
+
+          git fetch target +main:refs/remotes/target/main --depth=1
+          git checkout -f target/main
+          git clean -fdx
+          git reset --hard target/main
+
+          BRANCH="vscode-revival-single"
+          git checkout -B "$BRANCH" target/main
+
+          ROOT="$(git rev-parse --show-toplevel)"
+          DEST="$ROOT/vscode"
+          mkdir -p "$DEST/$(dirname "$FILE")"
+
+          git show "vscode/main:$FILE" > "$DEST/$FILE" 2>/dev/null || true
+
+          echo "Repo root: $ROOT"
+          echo "Written:   $DEST/$FILE"
+          ls -la "$DEST" | head
+
+          git add vscode/
+          git commit -m "VSCode Revival: single file ${FILE}" || { echo "Nothing to commit."; exit 0; }
+
+          git push fork "$BRANCH" --force-with-lease
+
+          gh pr create --repo "$UPSTREAM" \
+            --head "${FORK_OWNER}:${BRANCH}" \
+            --base main \
+            --title "VSCode Revival: single file" \
+            --body "单文件先跑通链路：\`vscode/${FILE}\`" \
+            || true

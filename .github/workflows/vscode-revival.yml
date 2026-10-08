@@ -3,6 +3,10 @@ name: VSCode Revival (single)
 on:
   workflow_dispatch:
     inputs:
+      batch:
+        description: '批次号（每轮 +1）'
+        required: true
+        default: '0'
       prepare:
         description: '是否重新生成清单（首次填 true）'
         required: false
@@ -80,6 +84,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    outputs:
+      has_more: ${{ steps.pick.outputs.has_more }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,17 +96,26 @@ jobs:
         with:
           name: clean-files
 
-      - name: Pick single line
+      - name: Pick line by batch
+        id: pick
+        env:
+          BATCH: ${{ github.event.inputs.batch || 0 }}
         run: |
           set -euo pipefail
-          FILE=$(head -n 1 clean_files.txt | awk '{print $2}')
-          if [ -z "$FILE" ]; then
-            echo "Manifest is empty."
+          LINE=$((BATCH + 1))
+          TOTAL=$(wc -l < clean_files.txt)
+          FILE=$(sed -n "${LINE}p" clean_files.txt | awk '{print $2}')
+
+          if [ -z "$FILE" ] || [ "$LINE" -gt "$TOTAL" ]; then
+            echo "No more files at line ${LINE} (total ${TOTAL}). Done."
+            echo "has_more=false" >> $GITHUB_OUTPUT
             echo "skip=true" >> $GITHUB_ENV
             exit 0
           fi
+
+          echo "has_more=true" >> $GITHUB_OUTPUT
           echo "FILE=$FILE" >> $GITHUB_ENV
-          echo "Picked: $FILE"
+          echo "Batch ${BATCH} -> line ${LINE}/${TOTAL}: $FILE"
 
       - name: Fetch target, fork and vscode
         if: env.skip != 'true'
@@ -121,6 +136,7 @@ jobs:
         if: env.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          BATCH: ${{ github.event.inputs.batch || 0 }}
           FORK_OWNER: CaoHaoran-Dev
           UPSTREAM: any-pr/any-pr
         run: |
@@ -131,7 +147,7 @@ jobs:
           git clean -fdx
           git reset --hard target/main
 
-          BRANCH="vscode-revival-single"
+          BRANCH="vscode-revival-single-${BATCH}"
           git checkout -B "$BRANCH" target/main
 
           ROOT="$(git rev-parse --show-toplevel)"
@@ -145,13 +161,27 @@ jobs:
           ls -la "$DEST" | head
 
           git add vscode/
-          git commit -m "VSCode Revival: single file ${FILE}" || { echo "Nothing to commit."; exit 0; }
+          git commit -m "VSCode Revival: single file ${FILE} (batch ${BATCH})" || { echo "Nothing to commit."; exit 0; }
 
           git push fork "$BRANCH" --force-with-lease
 
           gh pr create --repo "$UPSTREAM" \
             --head "${FORK_OWNER}:${BRANCH}" \
             --base main \
-            --title "VSCode Revival: single file" \
-            --body "单文件先跑通链路：\`vscode/${FILE}\`" \
+            --title "VSCode Revival: single file (batch ${BATCH})" \
+            --body "单文件：\`vscode/${FILE}\`" \
             || true
+
+  next:
+    needs: [revive]
+    runs-on: ubuntu-latest
+    if: always() && needs.revive.result != 'failure' && needs.revive.outputs.has_more == 'true'
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          NEXT=$(( ${{ github.event.inputs.batch || 0 }} + 1 ))
+          gh workflow run vscode-revival.yml \
+            --repo ${{ github.repository }} \
+            -f batch=$NEXT \
+            -f prepare=false

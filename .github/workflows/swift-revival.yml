@@ -79,8 +79,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          START=$((BATCH * 10))
-          sed -n "$((START+1)),$((START+10))p" clean_files.txt > batch.txt
+          START=$((BATCH * 5))
+          sed -n "$((START+1)),$((START+5))p" clean_files.txt > batch.txt
           [ -s batch.txt ] || { echo "No more files."; exit 0; }
 
           BRANCH="swift-revival-batch-${BATCH}"
@@ -101,7 +101,7 @@ jobs:
             --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${BATCH}" \
-            --body "编译二进制才是王道，你这 JVM 简直没技巧。" \
+            --body "编译二进制才是王道，JVM简直没技巧。" \
             || true
 
       - name: Trigger next batch

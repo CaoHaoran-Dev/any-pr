@@ -44,8 +44,12 @@ jobs:
 
           if [ ! -s clean_files.txt ] || [ "$PREPARE" = "true" ]; then
             echo "Building manifest..."
+
             git ls-tree -r --name-only swift/main \
-              | grep -viE '^\.github/|^LICENSE|^README|\.(png|jpg|jpeg|gif|svg|ico|jar|so|dll|exe|bin|zip|gz|tar|pem|key|p12|pfx)$' \
+              | grep -viE '^\.github(/|$)' \
+              | grep -viE '(^|/)licen[cs]es?/|(^|/)((un)?licen[cs]e|copying|copyright|readme)s?([._-][a-z0-9]+)*$' \
+              | grep -viE '~$|\.(tmp|temp|bak|sav|old|orig|rej|sw[a-z]|log)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.ipynb_checkpoints|\.tox|\.nox|\.cache|\.parcel-cache|\.turbo|\.nyc_output|node_modules|dist|build|out|target|coverage|obj|\.next|\.nuxt|\.output|\.gradle|\.vercel)/|\.(eslintcache|stylelintcache|py[co]|o|obj|a|lib|so|dylib|dll|exe|com|msi|apk|aab|ipa|dmg|deb|rpm|class|jar|war|ear|whl|egg|wasm|pdb|bin|db|sqlite3?|zip|tgz|tar|tar\.(gz|bz2|xz|zst)|gz|bz2|xz|7z|rar|zst)$' \
+              | grep -viE '(^|/)\.env([._-][a-z0-9._-]*)?$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials(\.json)?$|(^|/)\.(npmrc|netrc|pgpass|htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn)$' \
               > all_files.txt
 
             while read -r f; do
@@ -171,7 +175,7 @@ jobs:
             --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${IDX}" \
-            --body "编译二进制才是王道，JVM简直没技巧。" \
+            --body "编译二进制才是王道，JVM简直没技巧" \
             || true
 
   next:

@@ -79,15 +79,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 三个 PR 分别从 batch*3 开始的三个切片
+          # 清单移到工作区之外，避免被 git clean 清掉
+          mkdir -p /tmp/swift-revival
+          cp clean_files.txt /tmp/swift-revival/clean_files.txt
+
           BASE=$((BATCH * 3))
 
           for i in 0 1 2; do
             IDX=$((BASE + i))
-            sed -n "$((IDX*5+1)),$((IDX*5+5))p" clean_files.txt > "batch_${i}.txt"
-            [ -s "batch_${i}.txt" ] || continue
+            sed -n "$((IDX*5+1)),$((IDX*5+5))p" /tmp/swift-revival/clean_files.txt > "/tmp/swift-revival/batch_${i}.txt"
+            [ -s "/tmp/swift-revival/batch_${i}.txt" ] || continue
 
-            # 每批独立工作区，从最新的 target/main 拉
+            # 每个 PR 前都从最新 target/main 拉，确保 fork 已更新
             git fetch target main:refs/remotes/target/main --depth=1
             git checkout -f target/main
             git clean -fdx
@@ -101,7 +104,7 @@ jobs:
               [ -z "$f" ] && continue
               mkdir -p "swift/$(dirname "$f")"
               git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
-            done < "batch_${i}.txt"
+            done < "/tmp/swift-revival/batch_${i}.txt"
 
             git add swift/
             git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit for batch ${IDX}."; continue; }

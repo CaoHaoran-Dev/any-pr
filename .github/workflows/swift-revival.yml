@@ -164,11 +164,18 @@ jobs:
           while read -r f; do
             [ -z "$f" ] && continue
             mkdir -p "swift/$(dirname "$f")"
-            git show "swift/main:$f" > "swift/$f" 2>/dev/null || true
+            if ! git show "swift/main:$f" > "swift/$f" 2>/dev/null; then
+              echo "WARN: cannot read $f from swift/main"
+              rm -f "swift/$f"
+            fi
           done < /tmp/swift-revival/mybatch.txt
 
           git add swift/
-          git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit."; exit 0; }
+          if git diff --cached --quiet; then
+            echo "Nothing to commit — file(s) already in target."
+            exit 0
+          fi
+          git commit -m "Swift Revival: batch ${IDX}"
           git push origin "$BRANCH" --force || true
 
           gh pr create --repo any-pr/any-pr \

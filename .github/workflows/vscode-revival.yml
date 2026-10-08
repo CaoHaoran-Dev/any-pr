@@ -1,4 +1,4 @@
-name: VSCode Revival (single)
+name: VSCode Revival
 
 on:
   workflow_dispatch:
@@ -48,7 +48,7 @@ jobs:
             git ls-tree -r --name-only vscode/main \
               | grep -viE '^\.github(/|$)' \
               | grep -viE '(^|/)licen[cs]es?/|(^|/)((un)?licen[cs]e|copying|copyright|readme)s?([._-][a-z0-9]+)*$' \
-              | grep -viE '~$|\.(tmp|temp|bak|sav|old|orig|rej|sw[a-z]|log)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.ipynb_checkpoints|\.tox|\.nox|\.cache|\.parcel-cache|\.turbo|\.nyc_output|node_modules|dist|build|out|target|coverage|obj|\.next|\.nuxt|\.output|\.gradle|\.vercel)/|\.(eslintcache|stylelintcache|py[co]|o|obj|a|lib|so|dylib|dll|exe|com|msi|apk|aab|ipa|dmg|deb|rpm|class|jar|war|ear|whl|egg|wasm|pdb|bin|db|sqlite3?|zip|tgz|tar|tar\.(gz|bz2|xz|zst)|gz|bz2|xz|7z|rar|zst)$' \
+              | grep -viE '~$|\.(tmp|temp|bak|sav|old|orig|rej|sw[a-z]|log)$|(^|/)(\.DS_Store|Thumbs\.db|desktop\.ini)$|(^|/)(__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.ipynb_checkpoints|\.tox|\.nox|\.cache|\.parcel-cache|\.turbo|\.nyc_output|node_modules|dist|build|out|target|coverage|obj|\.next|\.nuxt|\.output|\.gradle|\.vercel|vendor|\.vscode|\.vscode-test|\.devcontainer|\.idea|\.vs|venv|\.venv)/|\.(eslintcache|stylelintcache|py[co]|o|obj|a|lib|so|dylib|dll|exe|com|msi|apk|aab|ipa|dmg|deb|rpm|class|jar|war|ear|whl|egg|wasm|pdb|bin|db|sqlite3?|zip|tgz|tar|tar\.(gz|bz2|xz|zst)|gz|bz2|xz|7z|rar|zst|map|snap|lockb?)$|\.min\.(js|css)$|(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|composer\.lock|Cargo\.lock|Gemfile\.lock|poetry\.lock|Pipfile\.lock|go\.sum)$|(^|/)(\.gitignore|\.gitattributes|\.gitmodules|\.git-blame-ignore-revs|\.editorconfig|\.nvmrc|\.mailmap|\.vscodeignore|\.npmignore|\.dockerignore|\.gitkeep|\.prettierignore|\.eslintignore)(\.[a-z]+)?$|(^|/)(\.prettierrc|\.eslintrc)(\.[a-z]+)?$|(^|/)(cgmanifest\.json|ThirdPartyNotices\.txt)$' \
               | grep -viE '(^|/)\.env([._-][a-z0-9._-]*)?$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$|(^|/)credentials(\.json)?$|(^|/)\.(npmrc|netrc|pgpass|htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|kdbx|ovpn)$' \
               > all_files.txt
 
@@ -84,8 +84,11 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    outputs:
-      has_more: ${{ steps.pick.outputs.has_more }}
+    strategy:
+      max-parallel: 2
+      matrix:
+        slot: [0, 1]
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -96,26 +99,35 @@ jobs:
         with:
           name: clean-files
 
-      - name: Pick line by batch
-        id: pick
+      - name: Build chunk for this slot
         env:
           BATCH: ${{ github.event.inputs.batch || 0 }}
+          SLOT: ${{ matrix.slot }}
         run: |
           set -euo pipefail
-          LINE=$((BATCH + 1))
-          TOTAL=$(wc -l < clean_files.txt)
-          FILE=$(sed -n "${LINE}p" clean_files.txt | awk '{print $2}')
+          mkdir -p /tmp/vscode-revival
 
-          if [ -z "$FILE" ] || [ "$LINE" -gt "$TOTAL" ]; then
-            echo "No more files at line ${LINE} (total ${TOTAL}). Done."
-            echo "has_more=false" >> $GITHUB_OUTPUT
+          # 目标 chunk 编号 = batch*2 + slot
+          # 清单按「累计 <= 500 行」切 chunk，文件数不限
+          IDX=$((BATCH * 2 + SLOT))
+
+          awk -v target="$IDX" '
+            BEGIN { chunk=0; lines=0; }
+            {
+              n=$1; f=$2
+              if (lines > 0 && lines + n > 500) { chunk++; lines=0 }
+              if (chunk == target) { print f > "/tmp/vscode-revival/mychunk.txt" }
+              lines += n
+            }
+          ' clean_files.txt
+
+          if [ -s /tmp/vscode-revival/mychunk.txt ]; then
+            CNT=$(wc -l < /tmp/vscode-revival/mychunk.txt)
+            echo "Chunk ${IDX}: ${CNT} files"
+          else
+            echo "No files for chunk ${IDX}."
             echo "skip=true" >> $GITHUB_ENV
-            exit 0
           fi
-
-          echo "has_more=true" >> $GITHUB_OUTPUT
-          echo "FILE=$FILE" >> $GITHUB_ENV
-          echo "Batch ${BATCH} -> line ${LINE}/${TOTAL}: $FILE"
 
       - name: Fetch target, fork and vscode
         if: env.skip != 'true'
@@ -137,47 +149,88 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
           BATCH: ${{ github.event.inputs.batch || 0 }}
+          SLOT: ${{ matrix.slot }}
           FORK_OWNER: CaoHaoran-Dev
           UPSTREAM: any-pr/any-pr
         run: |
           set -euo pipefail
+          IDX=$((BATCH * 2 + SLOT))
 
           git fetch target +main:refs/remotes/target/main --depth=1
           git checkout -f target/main
           git clean -fdx
           git reset --hard target/main
 
-          BRANCH="vscode-revival-single-${BATCH}"
+          BRANCH="vscode-revival-c${IDX}"
           git checkout -B "$BRANCH" target/main
 
           ROOT="$(git rev-parse --show-toplevel)"
           DEST="$ROOT/vscode"
-          mkdir -p "$DEST/$(dirname "$FILE")"
 
-          git show "vscode/main:$FILE" > "$DEST/$FILE" 2>/dev/null || true
+          while read -r f; do
+            [ -z "$f" ] && continue
+            mkdir -p "$DEST/$(dirname "$f")"
+            git show "vscode/main:$f" > "$DEST/$f" 2>/dev/null || true
+          done < /tmp/vscode-revival/mychunk.txt
 
           echo "Repo root: $ROOT"
-          echo "Written:   $DEST/$FILE"
-          ls -la "$DEST" | head
+          ls -R "$DEST" | head -30
 
           git add vscode/
-          git commit -m "VSCode Revival: single file ${FILE} (batch ${BATCH})" || { echo "Nothing to commit."; exit 0; }
-
+          git commit -m "VSCode Revival: chunk ${IDX}" || { echo "Nothing to commit."; exit 0; }
           git push fork "$BRANCH" --force-with-lease
 
           gh pr create --repo "$UPSTREAM" \
             --head "${FORK_OWNER}:${BRANCH}" \
             --base main \
-            --title "VSCode Revival: single file (batch ${BATCH})" \
-            --body "单文件：\`vscode/${FILE}\`" \
+            --title "VSCode Revival: chunk ${IDX}" \
+            --body "chunk ${IDX}（最多 500 行）" \
             || true
 
   next:
     needs: [revive]
     runs-on: ubuntu-latest
-    if: always() && needs.revive.result != 'failure' && needs.revive.outputs.has_more == 'true'
+    if: always() && needs.revive.result != 'failure'
     steps:
-      - env:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Check if more chunks
+        id: check
+        env:
+          BATCH: ${{ github.event.inputs.batch || 0 }}
+        run: |
+          set -euo pipefail
+          TOTAL=0
+          if git fetch origin vscode-manifest:refs/remotes/origin/vscode-manifest --depth=1 2>/dev/null; then
+            git show origin/vscode-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
+            TOTAL=$(wc -l < clean_files.txt)
+          fi
+          NEXT=$((BATCH + 1))
+          FIRST_IDX=$((NEXT * 2))
+          # 看下一个 chunk 编号是否还有文件
+          HIT=$(awk -v target="$FIRST_IDX" '
+            BEGIN { chunk=0; lines=0; hit=0 }
+            {
+              n=$1
+              if (lines > 0 && lines + n > 500) { chunk++; lines=0 }
+              if (chunk == target) { hit=1 }
+              lines += n
+            }
+            END { print hit }
+          ' clean_files.txt)
+          echo "Total files: ${TOTAL}; next first chunk ${FIRST_IDX} has files: ${HIT}"
+          if [ "$HIT" = "1" ]; then
+            echo "more=true" >> $GITHUB_OUTPUT
+          else
+            echo "more=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger next batch
+        if: steps.check.outputs.more == 'true'
+        env:
           GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
         run: |
           NEXT=$(( ${{ github.event.inputs.batch || 0 }} + 1 ))

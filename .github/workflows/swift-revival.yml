@@ -8,11 +8,11 @@ on:
         required: true
         default: '0'
       prepare:
-        description: '是否重新生成清单（首次或清单过期时填 true）'
+        description: '是否重新生成清单（首次填 true）'
         required: false
         default: 'false'
   schedule:
-    - cron: '*/2 * * * *'
+    - cron: '*/1 * * * *'
 
 jobs:
   revive:
@@ -44,22 +44,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 尝试从固定分支拉清单
           if git fetch origin swift-manifest:refs/remotes/origin/swift-manifest --depth=1 2>/dev/null; then
             git show origin/swift-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
           fi
 
-          # 如果清单不存在，或用户要求重建，则重新生成
           if [ ! -s clean_files.txt ] || [ "$PREPARE" = "true" ]; then
             echo "Building manifest..."
             git ls-tree -r --name-only swift/main \
               | grep -viE '^\.github/|^LICENSE|^README|\.(png|jpg|jpeg|gif|svg|ico|jar|so|dll|exe|bin|zip|gz|tar|pem|key|p12|pfx)$' \
-              | while read -r f; do
-                  lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
-                  if [ "$lines" -le 300 ]; then echo "$f"; fi
-                done > clean_files.txt
+              > all_files.txt
 
-            # 把清单推到固定分支
+            while read -r f; do
+              [ -z "$f" ] && continue
+              lines=$(git show "swift/main:$f" 2>/dev/null | wc -l)
+              if [ "$lines" -le 300 ]; then echo "$f"; fi
+            done < all_files.txt > clean_files.txt
+
             git checkout --orphan swift-manifest-tmp
             git rm -rf . >/dev/null 2>&1 || true
             cp clean_files.txt clean_files.txt.tmp
@@ -79,8 +79,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          START=$((BATCH * 5))
-          sed -n "$((START+1)),$((START+5))p" clean_files.txt > batch.txt
+          START=$((BATCH * 10))
+          sed -n "$((START+1)),$((START+10))p" clean_files.txt > batch.txt
           [ -s batch.txt ] || { echo "No more files."; exit 0; }
 
           BRANCH="swift-revival-batch-${BATCH}"
@@ -101,7 +101,7 @@ jobs:
             --head "CaoHaoran-Dev:$BRANCH" \
             --base main \
             --title "Swift Revival: batch ${BATCH}" \
-            --body "编译语言才是王道，JVM简直没技巧。" \
+            --body "编译二进制才是王道，你这 JVM 简直没技巧。" \
             || true
 
       - name: Trigger next batch

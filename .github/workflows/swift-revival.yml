@@ -34,6 +34,10 @@ jobs:
           PREPARE: ${{ github.event.inputs.prepare || 'false' }}
         run: |
           set -euo pipefail
+
+          git config user.name "CaoHaoran-Dev"
+          git config user.email "CaoHaoran-Dev@users.noreply.github.com"
+
           if git fetch origin swift-manifest:refs/remotes/origin/swift-manifest --depth=1 2>/dev/null; then
             git show origin/swift-manifest:clean_files.txt > clean_files.txt 2>/dev/null || true
           fi

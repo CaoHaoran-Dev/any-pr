@@ -169,7 +169,7 @@ jobs:
 
           git add swift/
           git commit -m "Swift Revival: batch ${IDX}" || { echo "Nothing to commit."; exit 0; }
-          git push origin "$BRANCH" --force
+          git push origin "$BRANCH" --force || true
 
           gh pr create --repo any-pr/any-pr \
             --head "CaoHaoran-Dev:$BRANCH" \
